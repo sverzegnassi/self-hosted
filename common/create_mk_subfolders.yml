@@ -1,0 +1,5 @@
+- name: "Create the directories"
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/containers/{{ compose_name }}/{{ item }}"
+    state: directory
+  loop: "{{ subfolders }}"

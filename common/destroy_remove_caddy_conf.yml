@@ -1,0 +1,11 @@
+- name: Ensure reverse proxy configuration doesn't exist (caddy)
+  ansible.builtin.file:
+    path: "/etc/caddy/Caddyfile.d/{{ caddy_file }}"
+    state: absent
+  become: yes
+
+- name: Reload Caddy configuration
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: reloaded
+  become: yes

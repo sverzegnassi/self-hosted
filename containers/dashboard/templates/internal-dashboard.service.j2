@@ -1,0 +1,11 @@
+[Unit]
+Description=Internal Dashboard
+After=caddy.service
+
+[Service]
+Type=exec
+ExecStart=caddy file-server --root {{ ansible_env.HOME }}/containers/{{ project_name }}/www --listen :{{ host_port }}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

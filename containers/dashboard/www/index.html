@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" x-data>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title x-html="$store.config.title"></title>
+    <link href="https://fonts.cdnfonts.com/css/public-sans" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/modern-normalize@2.0.0/modern-normalize.css">
+    <link rel="stylesheet" href="global.css">
+</head>
+
+<style>
+    @import url('https://fonts.cdnfonts.com/css/public-sans');
+</style>
+
+<body>
+    <main>      
+        <header class="section" x-bind:style="{ backgroundImage: 'url(' + $store.config.background.url + ')' }">
+            <h1 x-text="$store.config.heading"></h1>
+
+            <form x-bind:action="$store.config.search.action" method="get">
+                <label class="visuallyhidden" for="search" x-text="$store.config.search.button_text"></label>
+                <input type="search" id="search" x-bind:name="$store.config.search.input_name"
+                    x-bind:placeholder="$store.config.search.placeholder" required>
+                <button type="submit" x-text="$store.config.search.button_text"></button>
+            </form>
+            </div>
+        </header>
+
+        <template x-for="section in $store.config.sections">
+            <section>
+                <header>
+                    <h2 x-text="section.name"></h2>
+                </header>
+
+                <div class="grid">
+                    <template x-for="panel in section.panels">
+                        <article class="card">
+                            <header>
+                                <h3 x-text="panel.name"></h3>
+                            </header>
+
+                            <template x-for="item in panel.items">
+                                <a x-bind:href="item.url" x-text="item.title"></a>
+                            </template>
+                        </article>
+                    </template>
+                </div>
+            </section>
+        </template>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="section">
+        <a x-bind:href="$store.config.edit_config.url" x-text="$store.config.edit_config.text"></a>
+    </footer>
+</body>
+
+<script type="module">
+    import Alpine from 'https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/+esm'
+    import yaml from 'https://cdn.jsdelivr.net/npm/yaml@2.3.4/+esm'
+
+    async function fetchConfig() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const configUrl = urlParams.get('configUrl')
+        console.log(configUrl)
+
+        try {
+            // Attach current time to bypass server cache - useful with e.g. GitHub Gist
+            const res = await fetch(configUrl + "?" + Date.now());
+            if (!res.ok) {
+                throw new Error(`${res.status}: ${await res.text()}`);
+            }
+
+            const configJson = yaml.parse(await res.text());
+            Alpine.store('config', configJson)
+
+            window.Alpine = Alpine
+            window.Alpine.start()
+        } catch (err) {
+            document.body.innerHTML = "<div>Error while processing the configuration.<br><br><pre>" + err + "</pre></div>"
+        }
+    }
+
+    fetchConfig();
+</script>
+
+</html>

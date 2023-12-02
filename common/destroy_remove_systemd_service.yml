@@ -1,0 +1,16 @@
+- name: Systemd service has been stopped
+  ansible.builtin.systemd:
+    name: "{{ service_name }}"
+    state: stopped
+    enabled: false
+    scope: user
+
+- name: Remove systemd service
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.config/systemd/user/{{ service_name }}.service"
+    state: absent
+
+- name: Reload systemd configuration
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: yes

@@ -1,0 +1,26 @@
+---
+- name: Destroy Plausible pods
+  hosts: all
+
+  vars:
+    pod_name: "plausible"
+
+  tasks:
+    - name: Remove Caddy configuration
+      import_tasks: ../../common/destroy_remove_caddy_conf.yml
+      vars:
+        caddy_file: "{{ pod_name }}.caddyfile"
+
+    - name: Remove Systemd service
+      import_tasks: ../../common/destroy_remove_systemd_service.yml
+      vars:
+        service_name: "pod-{{ pod_name }}"
+
+    - name: Remove Plausible pod
+      containers.podman.podman_pod:
+        name: "{{ pod_name }}"
+        state: absent
+
+    - name: "Finished"
+      ansible.builtin.debug:
+        msg: "Content of `{{ ansible_env.HOME }}/containers/{{ pod_name }}` has been preserved."

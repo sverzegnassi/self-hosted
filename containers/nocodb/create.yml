@@ -1,0 +1,57 @@
+---
+- name: Create NocoDB container with Podman and Caddy
+  hosts: all
+
+  vars:
+    container_name: "nocodb"
+    host_port: 6789
+    host: "nocodb.{{ lookup('env','DOMAIN') }}"
+    protocol: https
+    
+  pre_tasks:   
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ container_name }}"
+        subfolders:
+          - nocodb-data
+
+  tasks:
+    - name: Podman container must be created
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        image: docker.io/nocodb/nocodb:latest
+        state: present
+        recreate: yes
+        ports:
+          - "{{ host_port }}:8080"
+        env:
+          NC_PUBLIC_URL: "{{ protocol }}://{{ host }}"
+          NC_AUTH_JWT_SECRET: "{{ lookup('env','NOCODB_AUTH_JWT_SECRET') }}"
+          NC_DISABLE_TELE: true
+          NC_SMTP_HOST: "{{ lookup('env','SMTP_HOST') }}"
+          NC_SMTP_PORT: "{{ lookup('env','SMTP_PORT') }}"
+          NC_SMTP_USERNAME: "{{ lookup('env','SMTP_USERNAME') }}"
+          NC_SMTP_PASSWORD: "{{ lookup('env','SMTP_PASSWORD') }}"
+          NC_SMTP_FROM: "{{ lookup('env','SMTP_SENDER') }}"
+          NC_SMTP_SECURE: "{{ lookup('env','SMTP_SSL') }}"
+        security_opt:
+          - no-new-privileges
+        cap_drop:
+          - all
+        volume:
+          - "{{ ansible_env.HOME }}/containers/{{ container_name }}/nocodb-data:/usr/app/data:Z,U"
+        generate_systemd:
+          path: "{{ ansible_env.HOME }}/.config/systemd/user/"
+          restart-policy: on-failure
+
+  post_tasks:
+    - name: Start the container
+      import_tasks: ../../common/create_start_systemd_service.yml
+      vars:
+        service_name: "container-{{ container_name }}"
+
+    - name: Configure the reverse proxy (Caddy)
+      import_tasks: ../../common/create_add_caddy_conf.yml
+      vars:
+        caddy_file: "{{ container_name }}.caddyfile"

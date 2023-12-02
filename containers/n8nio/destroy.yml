@@ -1,0 +1,26 @@
+---
+- name: Destroy n8n.io container
+  hosts: all
+
+  vars:
+    container_name: "n8nio"
+
+  tasks:
+    - name: Remove Caddy configuration
+      import_tasks: ../../common/destroy_remove_caddy_conf.yml
+      vars:
+        caddy_file: "{{ container_name }}.caddyfile"
+
+    - name: Remove Systemd service
+      import_tasks: ../../common/destroy_remove_systemd_service.yml
+      vars:
+        service_name: "container-{{ container_name }}"
+
+    - name: Remove container
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        state: absent
+
+    - name: "Finished" 
+      ansible.builtin.debug:
+        msg: "Content of `{{ ansible_env.HOME }}/containers/{{ container_name }}` has been preserved."

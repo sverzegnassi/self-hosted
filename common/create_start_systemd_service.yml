@@ -1,0 +1,7 @@
+- name: Container must be started and enabled on systemd
+  ansible.builtin.systemd:
+    name: "{{ service_name }}"
+    daemon_reload: true
+    state: started
+    enabled: true
+    scope: user

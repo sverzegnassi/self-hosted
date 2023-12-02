@@ -1,0 +1,118 @@
+---
+- name: Create Plausible pod with Podman and Caddy
+  hosts: all
+
+  vars:
+    pod_name: "plausible"
+    host_port: 12753
+    host: "plausible.{{ lookup('env','DOMAIN') }}"
+    protocol: https
+
+  pre_tasks:
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ pod_name }}"
+        subfolders:
+          - db-data
+          - event-data
+          - clickhouse
+          - exim4-logs
+
+    - name: Copy clickhouse-config.xml
+      copy:
+        src: ./clickhouse/clickhouse-config.xml
+        dest: "{{ ansible_env.HOME }}/containers/{{ pod_name }}/clickhouse/clickhouse-config.xml"
+        
+    - name: Copy clickhouse-user-config.xml
+      copy:
+        src: ./clickhouse/clickhouse-user-config.xml
+        dest: "{{ ansible_env.HOME }}/containers/{{ pod_name }}/clickhouse/clickhouse-user-config.xml"
+
+  tasks:
+    - name: Create the pod
+      containers.podman.podman_pod:
+        name: "{{ pod_name }}"
+        state: created
+        recreate: yes
+        ports:
+          - "{{ host_port }}:8000"
+
+    - name: Database container
+      containers.podman.podman_container:
+        name: "{{ pod_name }}_db"
+        pod: "{{ pod_name }}"
+        image: docker.io/postgres:14-alpine
+        recreate: yes
+        state: created
+        volumes:
+          - "{{ ansible_env.HOME }}/containers/{{ pod_name }}/db-data:/var/lib/postgresql/data:Z,U"
+        env:
+          POSTGRES_PASSWORD: "{{ lookup('env','PLAUSIBLE_POSTGRES_PASSWORD') }}"
+    
+    - name: Events Database container
+      containers.podman.podman_container:
+        name: "{{ pod_name }}_events_db"
+        pod: "{{ pod_name }}"
+        image: docker.io/clickhouse/clickhouse-server:23.3.7.5-alpine
+        recreate: yes
+        state: created
+        env:
+          CLICKHOUSE_DB: plausible_events_db
+        volumes:
+          - "{{ ansible_env.HOME }}/containers/{{ pod_name }}/event-data:/var/lib/clickhouse:Z,U"
+          - "{{ ansible_env.HOME }}/containers/{{ pod_name }}/clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/logging.xml:Z,U"
+          - "{{ ansible_env.HOME }}/containers/{{ pod_name }}/clickhouse/clickhouse-user-config.xml:/etc/clickhouse-server/users.d/logging.xml:Z,U"
+        ulimits:
+          - "nofile=262144:262144"
+
+    - name: Plausible container
+      containers.podman.podman_container:
+        name: "{{ pod_name }}_analytics"
+        pod: "{{ pod_name }}"
+        recreate: yes
+        state: created
+        requires:
+          - "{{ pod_name }}_db"
+          - "{{ pod_name }}_events_db"
+        image: docker.io/plausible/analytics:v2
+        command: 
+          - sh
+          - -c
+          - "sleep 10 && /entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
+        env:
+          BASE_URL: "{{ protocol }}://{{ host }}"
+          PORT: 8000
+          SECRET_KEY_BASE: "{{ lookup('env','PLAUSIBLE_SECRET_KEY_BASE') }}"
+          DISABLE_REGISTRATION: "{{ lookup('env','PLAUSIBLE_DISABLE_REGISTRATION') }}"
+          LOG_FAILED_LOGIN_ATTEMPTS: "{{ lookup('env','PLAUSIBLE_LOG_FAILED_LOGIN_ATTEMPTS') }}"
+          DATABASE_URL: "postgres://postgres:{{ lookup('env','PLAUSIBLE_POSTGRES_PASSWORD') }}@{{ pod_name }}:5432/plausible_db"
+          CLICKHOUSE_DATABASE_URL: "http://{{ pod_name }}:8123/plausible_events_db"
+          SMTP_HOST_ADDR: "{{ lookup('env','SMTP_HOST') }}"
+          SMTP_HOST_PORT: "{{ lookup('env','SMTP_PORT') }}"
+          SMTP_USER_NAME: "{{ lookup('env','SMTP_USERNAME') }}"
+          SMTP_USER_PWD: "{{ lookup('env','SMTP_PASSWORD') }}"
+          MAILER_EMAIL: "{{ lookup('env','SMTP_SENDER') }}"
+          MAILER_NAME: "{{ lookup('env','SMTP_SENDER_NAME') }}"
+          SMTP_HOST_SSL_ENABLED: "{{ lookup('env','SMTP_SSL') }}"
+          GOOGLE_CLIENT_ID: "{{ lookup('env','PLAUSIBLE_GOOGLE_CLIENT_ID') }}"
+          GOOGLE_CLIENT_SECRET: "{{ lookup('env','PLAUSIBLE_GOOGLE_CLIENT_SECRET') }}"
+        security_opt:
+          - no-new-privileges
+
+  post_tasks:
+    - name: Create systemd service
+      containers.podman.podman_generate_systemd:
+        dest: "{{ ansible_env.HOME }}/.config/systemd/user/"
+        name: "{{ pod_name }}"
+        restart_policy: on-failure
+
+    - name: Enable the service and start the pod
+      import_tasks: ../../common/create_start_systemd_service.yml
+      vars:
+        service_name: "pod-{{ pod_name }}"
+
+    - name: Configure the reverse proxy (Caddy)
+      import_tasks: ../../common/create_add_caddy_conf.yml
+      vars:
+        caddy_file: "{{ pod_name }}.caddyfile"

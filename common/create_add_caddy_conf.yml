@@ -1,0 +1,14 @@
+- name: Caddy configuration for the container must exists
+  ansible.builtin.template:
+    src: ./templates/caddyfile.j2
+    dest: "/etc/caddy/Caddyfile.d/{{ caddy_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: yes
+
+- name: Reload Caddy configuration
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: reloaded
+  become: yes

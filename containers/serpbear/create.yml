@@ -1,0 +1,59 @@
+---
+# =/=
+- name: Create container with Podman and expose it through Caddy
+  hosts: all
+
+  vars:
+    container_name: "serpbear"
+    host_port: 12585
+    host: "{{ lookup('env','DOMAIN_INTERNAL') }}"
+    protocol: https
+
+  pre_tasks:
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ container_name }}"
+        subfolders:
+          - serp-data
+
+  tasks:
+    - name: Create container
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        image: docker.io/sverzegnassi/serpbear
+        state: present
+        recreate: yes
+        ports:
+          - "{{ host_port }}:3000"
+        env:
+          NEXT_PUBLIC_APP_URL: "{{ protocol }}://{{ host }}"
+          USER: "{{ lookup('env','SERPBEAR_USER') }}"
+          PASSWORD: "{{ lookup('env','SERPBEAR_PASSWORD') }}"
+          SECRET: "{{ lookup('env','SERPBEAR_SECRET') }}"
+          APIKEY: "{{ lookup('env','SERPBEAR_APIKEY') }}"
+          SEARCH_CONSOLE_PRIVATE_KEY: "{{ lookup('env','SERPBEAR_GOOGLE_CONSOLE_PRIVATE_KEY') }}"
+          SEARCH_CONSOLE_CLIENT_EMAIL: "{{ lookup('env','SERPBEAR_GOOGLE_CONSOLE_PRIVATE_EMAIL') }}"
+        security_opt:
+          - no-new-privileges
+        volume:
+          - "{{ ansible_env.HOME }}/containers/{{ container_name }}/serp-data:/app/data:Z,U"
+        generate_systemd:
+          path: "{{ ansible_env.HOME }}/.config/systemd/user/"
+          restart-policy: on-failure
+        memory: 4g  # The app seems to leak a bit of memory. Cap it, but keep it fairly large
+
+  post_tasks:
+    - name: Start the container
+      import_tasks: ../../common/create_start_systemd_service.yml
+      vars:
+        service_name: "container-{{ container_name }}"
+
+    - name: "Open port {{ host_port }} in the internal zone of firewalld"
+      ansible.posix.firewalld:
+        zone: internal
+        port: "{{ host_port }}/tcp"
+        permanent: true
+        state: enabled
+      become: yes
+        

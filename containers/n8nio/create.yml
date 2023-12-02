@@ -1,0 +1,61 @@
+---
+- name: Create n8n.io container with Podman and Caddy reverse proxy
+  hosts: all
+
+  vars:
+    container_name: "n8nio"
+    host_port: 5678
+    host: "n8n.{{ lookup('env','DOMAIN') }}"
+    protocol: https
+   
+  pre_tasks:
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ container_name }}"
+        subfolders:
+          - n8n-data
+
+  tasks:
+    - name: Create container
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        image: docker.io/n8nio/n8n
+        state: present
+        recreate: yes
+        ports:
+          - "{{ host_port }}:5678"
+        env:
+          N8N_GENERIC_TIMEZONE: Europe/Berlin
+          N8N_HOST: "{{ host }}"
+          WEBHOOK_URL: "{{ protocol }}://{{ host }}"
+          N8N_PORT: 5678
+          N8N_PROTOCOL: "{{ protocol }}"
+          N8N_EMAIL_MODE: smtp
+          N8N_SMTP_HOST: "{{ lookup('env','SMTP_HOST') }}"
+          N8N_SMTP_PORT: "{{ lookup('env','SMTP_PORT') }}"
+          N8N_SMTP_USER: "{{ lookup('env','SMTP_USERNAME') }}"
+          N8N_SMTP_PASS: "{{ lookup('env','SMTP_PASSWORD') }}"
+          N8N_SMTP_SENDER: "{{ lookup('env','SMTP_SENDER') }}"
+          N8N_SMTP_SSL: "{{ lookup('env','SMTP_SSL') }}"
+        volume:
+          - "{{ ansible_env.HOME }}/containers/{{ container_name }}/n8n-data:/home/node/.n8n:Z,U"
+        generate_systemd:
+          path: "{{ ansible_env.HOME }}/.config/systemd/user/"
+          restart-policy: on-failure
+        security_opt:
+          - no-new-privileges
+        cap_drop:
+          - all
+        memory: 2g
+
+  post_tasks:
+    - name: Start the container
+      import_tasks: ../../common/create_start_systemd_service.yml
+      vars:
+        service_name: "container-{{ container_name }}"
+
+    - name: Configure the reverse proxy (Caddy)
+      import_tasks: ../../common/create_add_caddy_conf.yml
+      vars:
+        caddy_file: "{{ container_name }}.caddyfile"

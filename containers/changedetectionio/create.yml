@@ -1,0 +1,90 @@
+---
+# =/=
+- name: Create container with Podman and expose it through Caddy
+  hosts: all
+
+  vars:
+    pod_name: "changedetectionio"
+    host_port: 12586
+    host: "{{ lookup('env','DOMAIN_INTERNAL') }}"
+    protocol: https
+
+  pre_tasks:
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ pod_name }}"
+        subfolders:
+          - datastore
+
+  tasks:
+    - name: Create the pod
+      containers.podman.podman_pod:
+        name: "{{ pod_name }}"
+        state: created
+        recreate: yes
+        ports:
+          - "{{ host_port }}:5000"
+
+    - name: Create Google Chrome container
+      containers.podman.podman_container:
+        name: "{{ pod_name }}_browser-chrome"
+        pod: "{{ pod_name }}"
+        image: docker.io/seleniarm/standalone-chromium:latest
+        state: present
+        recreate: yes
+        env:
+          SCREEN_WIDTH: 1920
+          SCREEN_HEIGHT: 1024
+          SCREEN_DEPTH: 16
+          ENABLE_DEBUGGER: false
+          PREBOOT_CHROME: true
+          CONNECTION_TIMEOUT: 300000
+          MAX_CONCURRENT_SESSIONS: 10
+          CHROME_REFRESH_TIME: 600000
+          DEFAULT_BLOCK_ADS: true
+          DEFAULT_STEALTH: true
+
+          # Ignore HTTPS errors, like for self-signed certs
+          DEFAULT_IGNORE_HTTPS_ERRORS: true
+        volumes:
+          # Workaround to avoid the browser crashing inside a docker container
+          # See https://github.com/SeleniumHQ/docker-selenium#quick-start
+          - /dev/shm:/dev/shm
+
+    - name: Create Changedetection container
+      containers.podman.podman_container:
+        name: "{{ pod_name }}_changedetection"
+        pod: "{{ pod_name }}"
+        image: ghcr.io/dgtlmoon/changedetection.io
+        state: present
+        recreate: yes
+        env:
+          TZ: Europe/Rome
+          BASE_URL: "{{ protocol }}://{{ host }}:{{ host_port }}"
+          WEBDRIVER_URL: http://localhost:4444/wd/hub
+        volumes:
+          - "{{ ansible_env.HOME }}/containers/{{ pod_name }}/datastore:/datastore:Z,U"
+        requires:
+          - "{{ pod_name }}_browser-chrome"
+
+  post_tasks:
+    - name: Create systemd service
+      containers.podman.podman_generate_systemd:
+        dest: "{{ ansible_env.HOME }}/.config/systemd/user/"
+        name: "{{ pod_name }}"
+        restart_policy: on-failure
+
+    - name: Enable the service and start the pod
+      import_tasks: ../../common/create_start_systemd_service.yml
+      vars:
+        service_name: "pod-{{ pod_name }}"
+
+    - name: "Open port {{ host_port }} in internal zone of firewalld"
+      ansible.posix.firewalld:
+        zone: internal
+        port: "{{ host_port }}/tcp"
+        permanent: true
+        state: enabled
+      become: yes
+        

@@ -1,0 +1,44 @@
+---
+- name: Create a dashboard to be hosted through caddy (internal)
+  hosts: all
+
+  vars:
+    project_name: dashboard
+    host_port: 1515
+   
+  pre_tasks:
+    - name: Create required subfolders
+      import_tasks: ../../common/create_mk_subfolders.yml
+      vars:
+        compose_name: "{{ project_name }}"
+        subfolders:
+          - www
+
+    - name: Copy content of 'www/' folder
+      ansible.builtin.copy:
+        src: ./www/
+        dest: "{{ ansible_env.HOME }}/containers/{{ project_name }}/www/"
+
+  tasks:
+    - name: Caddy configuration for the container must exists
+      ansible.builtin.template:
+        src: ./templates/internal-dashboard.service.j2
+        dest: "{{ ansible_env.HOME }}/.config/systemd/user/internal-dashboard.service"    
+
+    - name: Container must be started and enabled on systemd
+      ansible.builtin.systemd:
+        name: internal-dashboard
+        daemon_reload: true
+        state: started
+        enabled: true
+        scope: user
+
+  post_tasks:
+    - name: "Open port {{ host_port }} in the internal zone of firewalld"
+      ansible.posix.firewalld:
+        zone: internal
+        port: "{{ host_port }}/tcp"
+        permanent: true
+        state: enabled
+      become: yes
+        
